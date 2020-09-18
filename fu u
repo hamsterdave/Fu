@@ -1,0 +1,210 @@
+//TO DO
+//Convert all String to char[] (done? needs testing)
+//dtmf audio out
+//SSerial conversion?
+//RX activity pin to prevent transmitting on a busy channel (need to test receiver noise floor in field)
+
+// BOARD CHANGES
+//Include AF filter/uModem hardware
+//Include RF filter
+//
+
+
+#define TX_RXact 42  //Module Pin 1 Low = Squelch open, High = squelch closed
+#define TX_AFout 43  //Module pin 3 Receive audio
+#define TX_ptt 45    //Module pin 5 Low for TX
+#define TX_sleep 46  //Module pin 6 0=sleep
+#define TX_pwr 47    //Module pin 7 ***DO NOT SET TO HIGH, MUST FLOAT FOR HIGH POWER***
+#define TX_AFin 49   //Module pin 18 Audio out from arduino
+#define RADIO_SERIAL Serial
+//#define error_pin 13  //Onboard LED pin
+
+
+const char TX_shake[] PROGMEM = "AT+DMOCONNECT"; //handshake
+const char TX_sgHead[] PROGMEM = "AT+DMOSETGROUP="; //group set preamble
+const char TX_volHead[] PROGMEM = "AT+DMOSETVOLUME="; //volume preamble
+const char TX_filHead[] PROGMEM = "AT+DMOSETFILTER="; //audio filter preamble
+
+
+char TX_bw[] = "0"; //0 = 12.5khz 1 = 25khz
+char TX_txf[] = "144.3900"; //TX frequency: Must use 4 digits after dot
+char TX_rxf[] = "144.3900"; //rx freq: " "
+char TX_txpl[] = "0000"; //TX CTCSS 0000 = none See programming manual for codes
+char TX_sq[] = "6"; //Squelch level 0-8: 0 = open
+//------------------------------------------------------------//
+
+char TX_rxpl[] = "0000"; //RX CTCSS
+char TX_vol[] = "4"; //RX audio volume level 1-8
+char TX_fil[] = "1,1,1"; //RX audio filter. Emphasis,Highpass,Lowpass 1 = bypass 0 = normal
+
+char groupString[47];
+//char groupString[] = TX_sgHead + TX_bw + TX_txf + TX_rxf + TX_txpl + TX_sq + TX_rxpl;
+char volumeString[18];
+//char volumeString[] = TX_volHead + TX_vol;
+char filterString[22];
+//char filterString[] = TX_filHead + TX_fil;
+
+char shakeReply[32];
+char groupReply[32];
+char volumeReply[32];
+char filterReply[32];
+
+int serialCount = 0;
+byte errorFlag;
+
+//-------------------DEBUG------------------------//
+//Prints all set commands and replies, turns on onboard LED. Last character should be 0. 1 = error
+void txDebug() {
+  //digitalWrite(error_pin, HIGH);
+  Serial.println("TRANSCEIVER ERROR");
+  Serial.print("Handshake: ");
+  Serial.println(TX_shake);
+  Serial.print("Reply: ");
+  Serial.println(shakeReply);
+  Serial.print("SetGroup: ");
+  Serial.println(groupString);
+  Serial.print("Reply: ");
+  Serial.println(groupReply);
+  Serial.print("SetVolume: ");
+  Serial.println(volumeString);
+  Serial.print("Reply: ");
+  Serial.println(volumeReply);
+  Serial.print("SetFilter: ");
+  Serial.println(filterString);
+  Serial.print("Reply: ");
+  Serial.println(filterReply); 
+} 
+
+//-----------------Handshake-----------------// 
+
+void handShake() {
+  serialCount = 0;
+  RADIO_SERIAL.println("AT+DMOCONNECT");
+  delay(100);
+  RADIO_SERIAL.println("AT+DMOCONNECT");  
+  
+  
+  while (RADIO_SERIAL.available() > 0) {
+    char incomingChar;
+    incomingChar = RADIO_SERIAL.read();
+    shakeReply[serialCount] = incomingChar;
+    serialCount++;
+  }
+  if (serialCount == 0 || shakeReply[serialCount] == 1) {
+    errorFlag = true;
+  }    
+}
+ 
+//----------------SetGroup---------------//
+
+
+
+void setGroup() {
+  serialCount = 0;
+  sprintf(groupString, "AT+DMOSETGROUP=%s,%s,%s,%s,%s,%s", TX_bw, TX_rxf, TX_txpl, TX_sq, TX_rxpl);
+  RADIO_SERIAL.println(groupString);
+  delay(100);
+  RADIO_SERIAL.println(groupString);
+
+  while (RADIO_SERIAL.available() > 0) {
+    char incomingChar;
+    incomingChar = RADIO_SERIAL.read();
+    groupReply[serialCount] = incomingChar;
+    serialCount++;
+  }
+  if (serialCount == 0 || shakeReply[serialCount] == 1) {
+    errorFlag = true;
+  } 
+}
+
+//------------------SetVolume---------------//
+
+void setVolume() {
+  serialCount = 0;
+  sprintf(volumeString, "AT+DMOSETVOLUME=%s", TX_vol);
+  
+  RADIO_SERIAL.println(volumeString);
+  delay(100);
+  RADIO_SERIAL.println(volumeString);
+  while (RADIO_SERIAL.available() > 0) {
+    char incomingChar;
+    incomingChar = RADIO_SERIAL.read();
+    volumeReply[serialCount] = incomingChar;
+    serialCount++;
+  }
+  if (serialCount == 0 || volumeReply[serialCount] == 1) {
+    errorFlag = true;
+  }
+}
+
+//---------------SetFilter----------------//
+
+void setFilter() {
+  serialCount = 0;
+  sprintf(filterString, "AT+DMOSETFILTER=%s", TX_fil);
+  
+  RADIO_SERIAL.println(filterString);
+  delay(100);
+  RADIO_SERIAL.println(filterString);
+  while (RADIO_SERIAL.available() > 0) {
+    char incomingChar;
+    incomingChar = RADIO_SERIAL.read();
+    filterReply[serialCount] = incomingChar;
+    serialCount++;
+  }
+  if (serialCount == 0 || filterReply[serialCount] == 1) {
+    errorFlag = true;
+  }    
+}
+
+
+//--------------TRANSMIT & stopTransmit-----------//
+
+void transmit() {
+  pinMode(TX_ptt, LOW);
+}
+
+void stopTransmit() {
+  pinMode(TX_ptt, HIGH);
+}
+//---------------------txSetup----------------------//
+
+void txSetup() {
+  pinMode(TX_pwr, OUTPUT);
+  digitalWrite(TX_pwr, LOW);
+  pinMode(TX_RXact, INPUT);
+  pinMode(TX_ptt, OUTPUT);
+  digitalWrite(TX_ptt, HIGH);
+  pinMode(TX_sleep, OUTPUT);
+  digitalWrite(TX_sleep, HIGH);
+  //pinMode(error_pin, OUTPUT);
+  //digitalWrite(error_pin, LOW);
+
+  Serial.begin(115200);
+  RADIO_SERIAL.begin(9600);
+
+  delay(1000);
+  handShake();
+  delay(500);
+  setGroup();
+  delay(500);
+  setVolume();
+  delay(500);
+  setFilter();
+  
+  if (errorFlag == true) {
+    txDebug();
+  }
+} 
+
+void setup(){
+  Serial.begin(115200);
+  txSetup();
+}
+
+void loop() {
+  Serial.println(TX_shake);
+  delay(3000);
+  Serial.println(TX_sgHead);
+  
+}
